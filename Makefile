@@ -6,9 +6,9 @@ BLUE := \033[0;34m
 BOLD := \033[1m
 NC := \033[0m # No Color
 
-.PHONY: all clean test test_1 test_2 test_3 test_4 test_5 test_6 test_7 test_8
+.PHONY: all clean test test_1 test_2 test_3 test_4 test_5 test_6 test_7 test_8 test_9
 
-DIRS := test1 test2 test3 test4 test5 test6 test7 test8
+DIRS := test1 test2 test3 test4 test5 test6 test7 test8 test9
 
 define print_header
 	@printf "${BLUE}${BOLD}=============================================\n"
@@ -114,3 +114,7 @@ test_7:
 test_8:
 	@echo "\n=== Running Test 8 ==="
 	@cd test8 && ./test8_program
+
+test_9:
+	@echo "\n=== Running Test 9 ==="
+	@cd test9 && ./test9_program

@@ -4,7 +4,7 @@ This test suite verifies the functionality of the PTE (Page Table Entry) meta op
 
 ## Test Structure
 
-The test suite consists of 8 tests, each focusing on different aspects of PTE meta operations:
+The test suite consists of 9 tests, each focusing on different aspects of PTE meta operations:
 
 ### Test1: Basic Page Allocation and Write
 - Tests basic page allocation and pattern writing
@@ -48,6 +48,9 @@ The test suite consists of 8 tests, each focusing on different aspects of PTE me
 - Verifies meta value changes
 - Measures timing for multiple set/get operations
 - Uses meta values: 0xCAFEBABE and 0xDEADBEEF
+
+### Test9: PTE Meta Operations Statistics Test
+Performs 10,000 iterations of PTE meta operations (enable, set, get, disable) and calculates detailed timing statistics for each operation. This test provides insights into the performance characteristics and stability of the PTE meta operations.
 
 ## Building and Running
 
@@ -160,8 +163,10 @@ Running test in test7...
 [PASS] Test successful in test7
 Running test in test8... 
 [PASS] Test successful in test8
+Running test in test9... 
+[PASS] Test successful in test9
 =============================================
-  Summary: 8 passed, 0 failed
+  Summary: 9 passed, 0 failed
   Logs: output/*.log
 =============================================
 ```
@@ -188,8 +193,10 @@ Building in test7...
 [PASS] Build successful in test7
 Building in test8... 
 [PASS] Build successful in test8
+Building in test9... 
+[PASS] Build successful in test9
 =============================================
-  Summary: 8 passed, 0 failed
+  Summary: 9 passed, 0 failed
 =============================================
 ```
 
@@ -215,8 +222,10 @@ Cleaning in test7...
 [PASS] Cleanup successful in test7
 Cleaning in test8... 
 [PASS] Cleanup successful in test8
+Cleaning in test9... 
+[PASS] Cleanup successful in test9
 =============================================
-  Summary: 8 passed, 0 failed
+  Summary: 9 passed, 0 failed
 =============================================
 ```
 
@@ -226,3 +235,49 @@ Note: In the actual terminal output:
 - [FAIL] messages would be shown in red
 - Running/Cleaning/Building messages are shown in yellow
 - Summary numbers are color-coded (green for passed, red for failed)
+
+#### Test9 Output
+```
+=== Test9: PTE Meta Operations Statistics Test ===
+
+--- Initial Setup ---
+    Page allocation     :     111328 ns
+    Pattern writing     :     153200 ns
+
+--- Iterative Operations (10000 iterations) ---
+
+--- Statistics ---
+Enable PTE Meta:
+    Min:          46208 ns
+    Max:         480368 ns
+    Mean:         51097 ns
+    StdDev:       21410 ns
+
+Set PTE Meta:
+    Min:          11392 ns
+    Max:         221200 ns
+    Mean:         12883 ns
+    StdDev:       10638 ns
+
+Get PTE Meta:
+    Min:           4160 ns
+    Max:         216608 ns
+    Mean:          5217 ns
+    StdDev:        6185 ns
+
+Disable PTE Meta:
+    Min:          39440 ns
+    Max:         510080 ns
+    Mean:         46801 ns
+    StdDev:       22370 ns
+
+--- Final Verification ---
+    ✓ verification successful after iterations
+    ✓ All 10000 iterations completed successfully
+```
+
+The output shows detailed timing statistics for each PTE meta operation over 10,000 iterations. Key observations:
+- Get operations are fastest (mean: ~5.2μs)
+- Set operations are relatively fast (mean: ~12.9μs)
+- Enable/Disable operations are slower (mean: ~51.1μs/~46.8μs)
+- All operations show some variance in timing, with occasional spikes
