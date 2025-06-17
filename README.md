@@ -135,3 +135,94 @@ All tests follow these common patterns:
 - Pattern verification ensures memory integrity
 - Timing measurements use CLOCK_MONOTONIC
 - Error messages follow consistent formatting
+
+## Sample Outputs
+
+### Running All Tests
+```bash
+$ make test
+=============================================
+  Running all tests
+=============================================
+Running test in test1... 
+[PASS] Test successful in test1
+Running test in test2... 
+[PASS] Test successful in test2
+Running test in test3... 
+[PASS] Test successful in test3
+Running test in test4... 
+[PASS] Test successful in test4
+Running test in test5... 
+[PASS] Test successful in test5
+Running test in test6... 
+[PASS] Test successful in test6
+Running test in test7... 
+[PASS] Test successful in test7
+Running test in test8... 
+[PASS] Test successful in test8
+=============================================
+  Summary: 8 passed, 0 failed
+  Logs: output/*.log
+=============================================
+```
+
+### Building All Tests
+```bash
+$ make
+=============================================
+  Building in all directories
+=============================================
+Building in test1... 
+[PASS] Build successful in test1
+Building in test2... 
+[PASS] Build successful in test2
+Building in test3... 
+[PASS] Build successful in test3
+Building in test4... 
+[PASS] Build successful in test4
+Building in test5... 
+[PASS] Build successful in test5
+Building in test6... 
+[PASS] Build successful in test6
+Building in test7... 
+[PASS] Build successful in test7
+Building in test8... 
+[PASS] Build successful in test8
+=============================================
+  Summary: 8 passed, 0 failed
+=============================================
+```
+
+### Cleaning Build Files
+```bash
+$ make clean
+=============================================
+  Cleaning Up
+=============================================
+Cleaning in test1... 
+[PASS] Cleanup successful in test1
+Cleaning in test2... 
+[PASS] Cleanup successful in test2
+Cleaning in test3... 
+[PASS] Cleanup successful in test3
+Cleaning in test4... 
+[PASS] Cleanup successful in test4
+Cleaning in test5... 
+[PASS] Cleanup successful in test5
+Cleaning in test6... 
+[PASS] Cleanup successful in test6
+Cleaning in test7... 
+[PASS] Cleanup successful in test7
+Cleaning in test8... 
+[PASS] Cleanup successful in test8
+=============================================
+  Summary: 8 passed, 0 failed
+=============================================
+```
+
+Note: In the actual terminal output:
+- Headers are shown in blue and bold
+- [PASS] messages are shown in green
+- [FAIL] messages would be shown in red
+- Running/Cleaning/Building messages are shown in yellow
+- Summary numbers are color-coded (green for passed, red for failed)
