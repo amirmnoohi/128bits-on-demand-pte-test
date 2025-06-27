@@ -42,13 +42,13 @@ static void call_or_die(long nr, unsigned long a1,
 
 static double get_time_diff(struct timespec *start, struct timespec *end)
 {
-    return (end->tv_sec - start->tv_sec) + 
-           (end->tv_nsec - start->tv_nsec) / 1e9;
+    return ((end->tv_sec - start->tv_sec) * 1e9) + 
+           (end->tv_nsec - start->tv_nsec);
 }
 
-static void print_timing(const char *operation, double seconds)
+static void print_timing(const char *operation, double nanoseconds)
 {
-    printf("    %-20s: %10.6f seconds\n", operation, seconds);
+    printf("    %-20s: %10.0f ns\n", operation, nanoseconds);
 }
 
 int main(void)

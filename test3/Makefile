@@ -1,6 +1,6 @@
 CC := gcc
 CFLAGS := -Wall -O0
-TARGET := test3_program
+TARGET := test3
 
 .PHONY: all clean test_3
 
