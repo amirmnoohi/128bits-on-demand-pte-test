@@ -1,56 +1,36 @@
 # PTE Meta Test Suite
 
-This test suite verifies the functionality of the PTE (Page Table Entry) meta operations in the kernel. It includes tests for enabling, disabling, setting, and getting PTE metadata.
+This test suite verifies the functionality and performance of PTE (Page Table Entry) meta operations in the kernel. It now includes 10 tests, covering both functional and performance aspects, including a new sysbench-based benchmark (test10).
 
 ## Test Structure
 
-The test suite consists of 9 tests, each focusing on different aspects of PTE meta operations:
+The suite consists of 10 tests:
 
-### Test1: Basic Page Allocation and Write
-- Tests basic page allocation and pattern writing
-- Verifies memory pattern integrity
-- Measures timing for allocation and writing operations
+### Test1–Test9: Functional and Timing Tests
+Each of these tests focuses on a specific aspect of PTE meta operations:
+- **Test1:** Basic page allocation and write
+- **Test2:** PTE meta content (bit 58=0)
+- **Test3:** PTE meta pointer (bit 58=1)
+- **Test4:** Get meta when not expanded
+- **Test5:** Get meta without setup
+- **Test6:** Enable/disable meta
+- **Test7:** Disable meta without enable
+- **Test8:** Set/get timing comparison
+- **Test9:** 10,000-iteration statistics (enable, set, get, disable)
 
-### Test2: PTE Meta Content Test
-- Tests setting PTE meta with bit 58=0 (content)
-- Verifies meta value and type
-- Measures timing for set/get operations
-- Uses meta value: 0xCAFEBABE
+Each test measures timing, verifies results, and checks error handling (ENODATA, EINVAL, EPERM).
 
-### Test3: PTE Meta Pointer Test
-- Tests setting PTE meta with bit 58=1 (pointer)
-- Verifies meta value and type
-- Measures timing for set/get operations
-- Uses meta value: 0xCAFEBABE
+### Test10: PTE Metadata Performance Benchmark
+Located in `test10/`, this test uses a custom `sysbench.sh` script to benchmark memory operations with and without PTE metadata. It covers:
+- Write Sequential (with/without PTE)
+- Write Random (with/without PTE)
+- Read Sequential (with/without PTE)
+- Read Random (with/without PTE)
 
-### Test4: PTE Meta Not Expanded Test
-- Tests getting PTE meta when not expanded
-- Verifies ENODATA error handling
-- Measures timing for get operation
-
-### Test5: PTE Meta Without Setup Test
-- Tests getting PTE meta without prior setup
-- Verifies ENODATA error handling
-- Measures timing for get operation
-
-### Test6: PTE Meta Enable/Disable Test
-- Tests enabling and disabling PTE meta
-- Verifies successful enable/disable operations
-- Measures timing for enable/disable operations
-
-### Test7: PTE Meta Disable Without Enable Test
-- Tests disabling PTE meta without prior enable
-- Verifies ENODATA error handling
-- Measures timing for disable operation
-
-### Test8: PTE Meta Set/Get Timing Comparison
-- Tests comparing timing between first and second set operations
-- Verifies meta value changes
-- Measures timing for multiple set/get operations
-- Uses meta values: 0xCAFEBABE and 0xDEADBEEF
-
-### Test9: PTE Meta Operations Statistics Test
-Performs 10,000 iterations of PTE meta operations (enable, set, get, disable) and calculates detailed timing statistics for each operation. This test provides insights into the performance characteristics and stability of the PTE meta operations.
+For each scenario, it measures operations per second and generates:
+- Individual result files (`*_DATE.txt`)
+- A summary report (`summary_DATE.txt`)
+- A CSV file (`results_DATE.csv`)
 
 ## Building and Running
 
@@ -58,8 +38,9 @@ Performs 10,000 iterations of PTE meta operations (enable, set, get, disable) an
 - GCC compiler
 - Make
 - Linux kernel with PTE meta support
+- For test10: `sysbench` (provided in `test10/`)
 
-### Build
+### Build All Tests
 ```bash
 make
 ```
@@ -71,10 +52,19 @@ make test
 
 ### Run Individual Tests
 ```bash
-make test_1  # Run Test1
-make test_2  # Run Test2
-# ... and so on
+make test_1   # Run Test1
+make test_2   # Run Test2
+# ...
+make test_9   # Run Test9
+make test_10  # Run Test10 (see below)
 ```
+
+### Run Test10 (Performance Benchmark)
+```bash
+cd test10
+bash sysbench.sh
+```
+This will run all 8 scenarios and generate result files in the current directory.
 
 ### Clean Build Files
 ```bash
@@ -83,61 +73,42 @@ make clean
 
 ## Test Output
 
-Each test produces output in two sections:
-1. **Timing Measurements**
-   - Shows execution time for each operation
-   - Includes page allocation, pattern writing, and PTE meta operations
-
-2. **Results and Verification**
-   - Shows verification results
-   - Displays success/failure indicators
-   - Reports any errors encountered
-
-## Log Files
-
-Test outputs are saved in the `output` directory:
-- `output/test1.log` - Test1 output
-- `output/test2.log` - Test2 output
-- And so on...
-
-Each log file contains:
-- Complete test output
-- Timing measurements
-- Verification results
-- Any error messages
+- **Tests 1–9:** Output logs are saved in the `output/` directory (e.g., `output/test1.log`).
+- **Test10:** Result files (`*.txt`), summary (`summary_DATE.txt`), and CSV (`results_DATE.csv`) are created in `test10/`.
 
 ## Error Handling
 
-Tests verify various error conditions:
-- ENODATA: When PTE meta is not set up
+Tests check for:
+- ENODATA: PTE meta not set up
 - EINVAL: Invalid arguments
 - EPERM: Permission issues
 
 ## Common Patterns
 
-All tests follow these common patterns:
+All tests (1–9) follow these steps:
 1. Page allocation and locking
 2. Pattern writing and verification
 3. PTE meta operations
 4. Result verification
 5. Cleanup (unlock and free)
 
-## Makefile Structure
+Test10 benchmarks memory operations using sysbench with and without PTE meta enabled.
 
-- Main Makefile: Orchestrates all tests
-- Individual test Makefiles:
-  - Compiler: GCC
-  - Flags: -Wall -O0
-  - Target: testN_program
-  - Phony targets: all, clean, test_N
+## Makefile Targets
+
+- `make all`      – Build all tests
+- `make test`     – Run all tests
+- `make clean`    – Clean all tests
+- `make test_N`   – Run testN individually (N=1..10)
+- For test10: `cd test10 && bash sysbench.sh`
 
 ## Notes
 
-- All tests use page-aligned memory
-- Memory is locked during tests
+- All tests use page-aligned memory and lock memory during tests
 - Pattern verification ensures memory integrity
-- Timing measurements use CLOCK_MONOTONIC
-- Error messages follow consistent formatting
+- Timing uses CLOCK_MONOTONIC
+- Error messages are consistently formatted
+- Test10 does not require compilation; it is a shell script using the provided sysbench binary
 
 ## Sample Outputs
 
@@ -149,55 +120,27 @@ $ make test
 =============================================
 Running test in test1... 
 [PASS] Test successful in test1
-Running test in test2... 
-[PASS] Test successful in test2
-Running test in test3... 
-[PASS] Test successful in test3
-Running test in test4... 
-[PASS] Test successful in test4
-Running test in test5... 
-[PASS] Test successful in test5
-Running test in test6... 
-[PASS] Test successful in test6
-Running test in test7... 
-[PASS] Test successful in test7
-Running test in test8... 
-[PASS] Test successful in test8
-Running test in test9... 
-[PASS] Test successful in test9
+...
+Running test in test10... 
+[PASS] Test successful in test10 (no build needed)
 =============================================
-  Summary: 9 passed, 0 failed
+  Summary: 10 passed, 0 failed
   Logs: output/*.log
 =============================================
 ```
 
-### Building All Tests
+### Running Test10
 ```bash
-$ make
-=============================================
-  Building in all directories
-=============================================
-Building in test1... 
-[PASS] Build successful in test1
-Building in test2... 
-[PASS] Build successful in test2
-Building in test3... 
-[PASS] Build successful in test3
-Building in test4... 
-[PASS] Build successful in test4
-Building in test5... 
-[PASS] Build successful in test5
-Building in test6... 
-[PASS] Build successful in test6
-Building in test7... 
-[PASS] Build successful in test7
-Building in test8... 
-[PASS] Build successful in test8
-Building in test9... 
-[PASS] Build successful in test9
-=============================================
-  Summary: 9 passed, 0 failed
-=============================================
+$ cd test10
+$ bash sysbench.sh
+=== PTE Metadata Performance Testing Suite ===
+8 Tests Total: 4 scenarios x 2 conditions (with/without PTE)
+...
+🎉 All 8 tests completed successfully!
+Files created in current directory:
+- 8 individual test results: *_DATE.txt
+- Summary report: summary_DATE.txt
+- CSV data: results_DATE.csv
 ```
 
 ### Cleaning Build Files
@@ -208,24 +151,11 @@ $ make clean
 =============================================
 Cleaning in test1... 
 [PASS] Cleanup successful in test1
-Cleaning in test2... 
-[PASS] Cleanup successful in test2
-Cleaning in test3... 
-[PASS] Cleanup successful in test3
-Cleaning in test4... 
-[PASS] Cleanup successful in test4
-Cleaning in test5... 
-[PASS] Cleanup successful in test5
-Cleaning in test6... 
-[PASS] Cleanup successful in test6
-Cleaning in test7... 
-[PASS] Cleanup successful in test7
-Cleaning in test8... 
-[PASS] Cleanup successful in test8
-Cleaning in test9... 
-[PASS] Cleanup successful in test9
+...
+Cleaning in test10... 
+[PASS] No cleanup needed in test10
 =============================================
-  Summary: 9 passed, 0 failed
+  Summary: 10 passed, 0 failed
 =============================================
 ```
 
