@@ -24,7 +24,7 @@ all:
 		if [ "$$dir" = "test10" ]; then \
 			printf "[${GREEN}PASS${NC}] No build needed in $$dir\n"; \
 			pass=$$((pass+1)); \
-			printf "  To run test10: cd test10 && ./test10_script\n"; \
+			printf "  To run test10: cd test10 && ./sysbench.sh\n"; \
 		elif $(MAKE) -C $$dir >/dev/null 2>&1; then \
 			printf "[${GREEN}PASS${NC}] Build successful in $$dir\n"; \
 			pass=$$((pass+1)); \
