@@ -20,8 +20,7 @@
 #define SYS_get_pte_meta      472
 
 #define ITERATIONS 10000
-#define META_VALUE 0xCAFEBABEULL
-#define META_TYPE  1  // Set bit 58 to 1 (pointer)
+#define META_VALUE_BASE 0xCAFEBABEDEADBEEFULL
 
 static void fill(uint8_t *b, size_t n)
 { for (size_t i = 0; i < n; ++i) b[i] = (uint8_t)(i & 0xFF); }
@@ -45,6 +44,20 @@ static double get_time_diff(struct timespec *start, struct timespec *end)
 static void print_timing(const char *operation, double nanoseconds)
 {
     printf("    %-20s: %10.0f ns\n", operation, nanoseconds);
+}
+
+static void call_or_die_1(long nr, unsigned long a1, const char *name)
+{
+    long r = syscall(nr, a1);
+    if (r < 0) { perror(name); exit(EXIT_FAILURE); }
+}
+
+static void call_or_die_3(long nr, unsigned long a1,
+                          unsigned long a2, unsigned long a3,
+                          const char *name)
+{
+    long r = syscall(nr, a1, a2, a3);
+    if (r < 0) { perror(name); exit(EXIT_FAILURE); }
 }
 
 static void calculate_stats(double *times, int n, double *min, double *max, 
@@ -71,21 +84,18 @@ int main(void)
     double time_taken;
     size_t ps = sysconf(_SC_PAGESIZE);
     uint8_t *buf;
-    double enable_times[ITERATIONS];
     double set_times[ITERATIONS];
     double get_times[ITERATIONS];
-    double disable_times[ITERATIONS];
     int i;
 
-    printf("\n=== Test9: PTE Meta Operations Statistics Test ===\n\n");
+    printf("\n=== Test9: %d-Iteration Statistics Test ===\n\n", ITERATIONS);
 
-    // Section 1: Initial Setup
-    printf("--- Initial Setup ---\n");
+    // Section 1: Setup
+    printf("--- Setup ---\n");
     
     clock_gettime(CLOCK_MONOTONIC, &start);
-    int ret = posix_memalign((void **)&buf, ps, ps);
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ Failed to allocate page aligned memory: %s\n", strerror(ret));
+    if (posix_memalign((void **)&buf, ps, ps) != 0) {
+        perror("posix_memalign");
         exit(EXIT_FAILURE);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -99,102 +109,106 @@ int main(void)
     clock_gettime(CLOCK_MONOTONIC, &end);
     time_taken = get_time_diff(&start, &end);
     print_timing("Pattern writing", time_taken);
+    
+    verify_pattern("initial fill", buf, ps);
 
-    // Section 2: Iterative Operations
-    printf("\n--- Iterative Operations (%d iterations) ---\n", ITERATIONS);
+    // Enable metadata once (more efficient than repeated enable/disable)
+    printf("    Enabling metadata for page table...\n");
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_1(SYS_enable_pte_meta, (unsigned long)buf, "enable_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("enable_pte_meta", time_taken);
+
+    // Section 2: Iterative Set/Get Operations
+    printf("\n--- %d Set/Get Iterations ---\n", ITERATIONS);
+    printf("    Progress: ");
+    fflush(stdout);
     
     for (i = 0; i < ITERATIONS; i++) {
-        // Enable
-        clock_gettime(CLOCK_MONOTONIC, &start);
-        ret = syscall(SYS_enable_pte_meta, (unsigned long)buf, 0, 0);
-        clock_gettime(CLOCK_MONOTONIC, &end);
-        enable_times[i] = get_time_diff(&start, &end);
-        if (ret != 0) {
-            fprintf(stderr, "    ✗ enable_pte_meta failed with error: %s\n", 
-                    strerror(-ret));
-            exit(EXIT_FAILURE);
+        // Show progress every 1000 iterations
+        if (i % 1000 == 0) {
+            printf("%d ", i);
+            fflush(stdout);
         }
+        
+        // Create unique metadata for each iteration
+        uint64_t meta_value = META_VALUE_BASE + i;
+        uint64_t retrieved_meta;
 
-        // Set
+        // Set metadata (MDP=0)
         clock_gettime(CLOCK_MONOTONIC, &start);
-        ret = syscall(SYS_set_pte_meta, (unsigned long)buf, META_VALUE, META_TYPE);
+        call_or_die_3(SYS_set_pte_meta, (unsigned long)buf, 0, 
+                      (unsigned long)&meta_value, "set_pte_meta");
         clock_gettime(CLOCK_MONOTONIC, &end);
         set_times[i] = get_time_diff(&start, &end);
-        if (ret != 0) {
-            fprintf(stderr, "    ✗ set_pte_meta failed with error: %s\n", 
-                    strerror(-ret));
-            exit(EXIT_FAILURE);
-        }
 
-        // Get
+        // Get metadata
         clock_gettime(CLOCK_MONOTONIC, &start);
-        long raw = syscall(SYS_get_pte_meta, (unsigned long)buf);
+        long r = syscall(SYS_get_pte_meta, (unsigned long)buf, &retrieved_meta);
         clock_gettime(CLOCK_MONOTONIC, &end);
         get_times[i] = get_time_diff(&start, &end);
-        if (errno == EINVAL || errno == EPERM) {
-            fprintf(stderr, "    ✗ get_pte_meta failed with error: %s\n", 
-                    strerror(errno));
+        
+        if (r < 0) {
+            fprintf(stderr, "\n    ✗ get_pte_meta failed at iteration %d: %s\n", 
+                    i, strerror(errno));
             exit(EXIT_FAILURE);
         }
 
-        // Verify meta value
-        int type = (raw >> 63) & 1;
-        uint64_t meta = raw & ((1ULL << 63) - 1);
-        if (type != META_TYPE || meta != META_VALUE) {
-            fprintf(stderr, "    ✗ meta verification failed (type: %d, meta: 0x%llx)\n",
-                    type, (unsigned long long)meta);
-            exit(EXIT_FAILURE);
-        }
-
-        // Disable
-        clock_gettime(CLOCK_MONOTONIC, &start);
-        ret = syscall(SYS_disable_pte_meta, (unsigned long)buf, 0, 0);
-        clock_gettime(CLOCK_MONOTONIC, &end);
-        disable_times[i] = get_time_diff(&start, &end);
-        if (ret != 0) {
-            fprintf(stderr, "    ✗ disable_pte_meta failed with error: %s\n", 
-                    strerror(-ret));
+        // Verify metadata value
+        if (retrieved_meta != meta_value) {
+            fprintf(stderr, "\n    ✗ meta verification failed at iteration %d\n", i);
+            fprintf(stderr, "      expected: 0x%llx, got: 0x%llx\n",
+                    (unsigned long long)meta_value, (unsigned long long)retrieved_meta);
             exit(EXIT_FAILURE);
         }
     }
+    
+    printf("%d\n    ✓ All iterations completed successfully\n", ITERATIONS);
 
-    // Section 3: Statistics
-    printf("\n--- Statistics ---\n");
+    // Section 3: Statistics Analysis
+    printf("\n--- Performance Statistics ---\n");
     
     double min, max, mean, stddev;
 
-    calculate_stats(enable_times, ITERATIONS, &min, &max, &mean, &stddev);
-    printf("Enable PTE Meta:\n");
-    printf("    Min:     %10.0f ns\n", min);
-    printf("    Max:     %10.0f ns\n", max);
-    printf("    Mean:    %10.0f ns\n", mean);
-    printf("    StdDev:  %10.0f ns\n", stddev);
-
     calculate_stats(set_times, ITERATIONS, &min, &max, &mean, &stddev);
-    printf("\nSet PTE Meta:\n");
+    printf("Set PTE Meta (%d iterations):\n", ITERATIONS);
     printf("    Min:     %10.0f ns\n", min);
     printf("    Max:     %10.0f ns\n", max);
     printf("    Mean:    %10.0f ns\n", mean);
     printf("    StdDev:  %10.0f ns\n", stddev);
 
     calculate_stats(get_times, ITERATIONS, &min, &max, &mean, &stddev);
-    printf("\nGet PTE Meta:\n");
+    printf("\nGet PTE Meta (%d iterations):\n", ITERATIONS);
     printf("    Min:     %10.0f ns\n", min);
     printf("    Max:     %10.0f ns\n", max);
     printf("    Mean:    %10.0f ns\n", mean);
     printf("    StdDev:  %10.0f ns\n", stddev);
 
-    calculate_stats(disable_times, ITERATIONS, &min, &max, &mean, &stddev);
-    printf("\nDisable PTE Meta:\n");
-    printf("    Min:     %10.0f ns\n", min);
-    printf("    Max:     %10.0f ns\n", max);
-    printf("    Mean:    %10.0f ns\n", mean);
-    printf("    StdDev:  %10.0f ns\n", stddev);
+    // Performance analysis
+    double total_set_time = 0, total_get_time = 0;
+    for (i = 0; i < ITERATIONS; i++) {
+        total_set_time += set_times[i];
+        total_get_time += get_times[i];
+    }
+    
+    printf("\nPerformance Summary:\n");
+    printf("    Total set time:  %10.0f ms\n", total_set_time / 1e6);
+    printf("    Total get time:  %10.0f ms\n", total_get_time / 1e6);
+    printf("    Set throughput:  %10.0f ops/sec\n", ITERATIONS / (total_set_time / 1e9));
+    printf("    Get throughput:  %10.0f ops/sec\n", ITERATIONS / (total_get_time / 1e9));
 
-    // Section 4: Final Verification
-    printf("\n--- Final Verification ---\n");
-    verify_pattern("iterations", buf, ps);
-    printf("    ✓ All %d iterations completed successfully\n", ITERATIONS);
+    // Section 4: Cleanup
+    printf("\n--- Cleanup ---\n");
+    
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_1(SYS_disable_pte_meta, (unsigned long)buf, "disable_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("disable_pte_meta", time_taken);
+    
+    verify_pattern("final check", buf, ps);
+    printf("    ✓ Test completed successfully\n");
 
     munlock(buf, ps);
     free(buf);

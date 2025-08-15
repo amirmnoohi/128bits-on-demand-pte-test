@@ -1,5 +1,5 @@
 /*
- * test8.c - Tests comparing timing between first and second set operations
+ * test8.c - Tests set/get timing comparison and performance analysis
  */
 
 #define _GNU_SOURCE
@@ -13,6 +13,8 @@
 #include <string.h>
 #include <time.h>
 
+#define SYS_enable_pte_meta   469
+#define SYS_disable_pte_meta  470
 #define SYS_set_pte_meta      471
 #define SYS_get_pte_meta      472
 
@@ -40,6 +42,112 @@ static void print_timing(const char *operation, double nanoseconds)
     printf("    %-20s: %10.0f ns\n", operation, nanoseconds);
 }
 
+static void call_or_die_1(long nr, unsigned long a1, const char *name)
+{
+    long r = syscall(nr, a1);
+    if (r < 0) { perror(name); exit(EXIT_FAILURE); }
+}
+
+static void call_or_die_3(long nr, unsigned long a1,
+                          unsigned long a2, unsigned long a3,
+                          const char *name)
+{
+    long r = syscall(nr, a1, a2, a3);
+    if (r < 0) { perror(name); exit(EXIT_FAILURE); }
+}
+
+static void test_timing_comparison(uint8_t *buf, size_t ps)
+{
+    struct timespec start, end;
+    double first_set_time, second_set_time, first_get_time, second_get_time;
+    uint64_t first_meta = 0xCAFEBABE12345678ULL;
+    uint64_t second_meta = 0xDEADBEEF87654321ULL;
+    uint64_t retrieved_meta;
+    
+    printf("\n--- Set/Get Timing Comparison ---\n");
+    
+    // First set operation (includes page table expansion)
+    printf("    First set operation (with page table expansion)...\n");
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_3(SYS_set_pte_meta, (unsigned long)buf, 0, 
+                  (unsigned long)&first_meta, "first set_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    first_set_time = get_time_diff(&start, &end);
+    print_timing("First set (expand)", first_set_time);
+    
+    verify_pattern("first set", buf, ps);
+    
+    // First get operation
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    long r = syscall(SYS_get_pte_meta, (unsigned long)buf, &retrieved_meta);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    first_get_time = get_time_diff(&start, &end);
+    print_timing("First get", first_get_time);
+    
+    if (r < 0) {
+        fprintf(stderr, "    ✗ First get_pte_meta failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    
+    if (retrieved_meta != first_meta) {
+        fprintf(stderr, "    ✗ First get: expected 0x%llx, got 0x%llx\n",
+                (unsigned long long)first_meta, (unsigned long long)retrieved_meta);
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("      ✓ First metadata verified: 0x%llx\n", (unsigned long long)retrieved_meta);
+    
+    // Second set operation (page table already expanded)
+    printf("    Second set operation (page table already expanded)...\n");
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_3(SYS_set_pte_meta, (unsigned long)buf, 0, 
+                  (unsigned long)&second_meta, "second set_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    second_set_time = get_time_diff(&start, &end);
+    print_timing("Second set (update)", second_set_time);
+    
+    verify_pattern("second set", buf, ps);
+    
+    // Second get operation
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    r = syscall(SYS_get_pte_meta, (unsigned long)buf, &retrieved_meta);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    second_get_time = get_time_diff(&start, &end);
+    print_timing("Second get", second_get_time);
+    
+    if (r < 0) {
+        fprintf(stderr, "    ✗ Second get_pte_meta failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    
+    if (retrieved_meta != second_meta) {
+        fprintf(stderr, "    ✗ Second get: expected 0x%llx, got 0x%llx\n",
+                (unsigned long long)second_meta, (unsigned long long)retrieved_meta);
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("      ✓ Second metadata verified: 0x%llx\n", (unsigned long long)retrieved_meta);
+    
+    // Performance analysis
+    printf("\n    --- Performance Analysis ---\n");
+    printf("      First set time:  %10.0f ns (includes expansion)\n", first_set_time);
+    printf("      Second set time: %10.0f ns (update only)\n", second_set_time);
+    printf("      First get time:  %10.0f ns\n", first_get_time);
+    printf("      Second get time: %10.0f ns\n", second_get_time);
+    
+    if (first_set_time > second_set_time) {
+        double speedup = first_set_time / second_set_time;
+        printf("      ✓ Second set is %.1fx faster (expansion overhead removed)\n", speedup);
+    } else {
+        printf("      ⚠ Second set not significantly faster (timing variation)\n");
+    }
+    
+    double avg_get_time = (first_get_time + second_get_time) / 2.0;
+    printf("      Average get time: %10.0f ns\n", avg_get_time);
+    
+    printf("    ✓ Timing comparison completed successfully\n");
+}
+
 int main(void)
 {
     struct timespec start, end;
@@ -47,15 +155,14 @@ int main(void)
     size_t ps = sysconf(_SC_PAGESIZE);
     uint8_t *buf;
 
-    printf("\n=== Test8: PTE Meta Set/Get Timing Comparison Test ===\n\n");
+    printf("\n=== Test8: Set/Get Timing Comparison Test ===\n\n");
 
-    // Section 1: Timing Measurements
-    printf("--- Timing Measurements ---\n");
+    // Section 1: Setup
+    printf("--- Setup ---\n");
     
     clock_gettime(CLOCK_MONOTONIC, &start);
-    int ret = posix_memalign((void **)&buf, ps, ps);
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ Failed to allocate page aligned memory: %s\n", strerror(ret));
+    if (posix_memalign((void **)&buf, ps, ps) != 0) {
+        perror("posix_memalign");
         exit(EXIT_FAILURE);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -69,73 +176,23 @@ int main(void)
     clock_gettime(CLOCK_MONOTONIC, &end);
     time_taken = get_time_diff(&start, &end);
     print_timing("Pattern writing", time_taken);
-
-    // First set operation
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    ret = syscall(SYS_set_pte_meta, (unsigned long)buf, 0xcafebabe, 1);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("First set_pte_meta", time_taken);
-
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ set_pte_meta failed with error: %s\n", 
-                strerror(-ret));
-        exit(EXIT_FAILURE);
-    }
-
-    // First get operation
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    long raw = syscall(SYS_get_pte_meta, (unsigned long)buf);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("First get_pte_meta", time_taken);
-
-    if (errno == EINVAL || errno == EPERM) {
-        fprintf(stderr, "    ✗ get_pte_meta failed with error: %s\n", 
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    int type = (raw >> 63) & 1;
-    uint64_t meta = raw & ((1ULL << 63) - 1);
-    printf("    ✓ First PTE meta get successful (type: %d, meta: 0x%llx)\n", 
-           type, (unsigned long long)meta);
-
-    // Second set operation
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    ret = syscall(SYS_set_pte_meta, (unsigned long)buf, 0xdeadbeef, 1);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("Second set_pte_meta", time_taken);
-
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ set_pte_meta failed with error: %s\n", 
-                strerror(-ret));
-        exit(EXIT_FAILURE);
-    }
-
-    // Second get operation
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    raw = syscall(SYS_get_pte_meta, (unsigned long)buf);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("Second get_pte_meta", time_taken);
-
-    if (errno == EINVAL || errno == EPERM) {
-        fprintf(stderr, "    ✗ get_pte_meta failed with error: %s\n", 
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    type = (raw >> 63) & 1;
-    meta = raw & ((1ULL << 63) - 1);
-    printf("    ✓ Second PTE meta get successful (type: %d, meta: 0x%llx)\n", 
-           type, (unsigned long long)meta);
-
-    // Section 2: Results and Verification
-    printf("\n--- Results and Verification ---\n");
     
     verify_pattern("initial fill", buf, ps);
+
+    // Section 2: Timing comparison test
+    test_timing_comparison(buf, ps);
+
+    // Section 3: Cleanup
+    printf("\n--- Cleanup ---\n");
+    
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_1(SYS_disable_pte_meta, (unsigned long)buf, "disable_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("disable_pte_meta", time_taken);
+    
+    verify_pattern("final check", buf, ps);
+    printf("    ✓ Test completed successfully\n");
 
     munlock(buf, ps);
     free(buf);

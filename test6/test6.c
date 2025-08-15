@@ -1,5 +1,5 @@
 /*
- * test6.c - Tests enabling and disabling PTE meta
+ * test6.c - Tests enabling and disabling PTE metadata
  */
 
 #define _GNU_SOURCE
@@ -15,6 +15,8 @@
 
 #define SYS_enable_pte_meta   469
 #define SYS_disable_pte_meta  470
+#define SYS_set_pte_meta      471
+#define SYS_get_pte_meta      472
 
 static void fill(uint8_t *b, size_t n)
 { for (size_t i = 0; i < n; ++i) b[i] = (uint8_t)(i & 0xFF); }
@@ -40,6 +42,96 @@ static void print_timing(const char *operation, double nanoseconds)
     printf("    %-20s: %10.0f ns\n", operation, nanoseconds);
 }
 
+static void call_or_die_1(long nr, unsigned long a1, const char *name)
+{
+    long r = syscall(nr, a1);
+    if (r < 0) { perror(name); exit(EXIT_FAILURE); }
+}
+
+static void test_enable_disable_cycle(uint8_t *buf, size_t ps)
+{
+    struct timespec start, end;
+    double time_taken;
+    
+    printf("\n--- Enable/Disable Cycle Test ---\n");
+    
+    // Test multiple enable/disable cycles
+    for (int cycle = 1; cycle <= 3; cycle++) {
+        printf("    Cycle %d:\n", cycle);
+        
+        // Enable metadata
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        call_or_die_1(SYS_enable_pte_meta, (unsigned long)buf, "enable_pte_meta");
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        time_taken = get_time_diff(&start, &end);
+        
+        char timing_name[32];
+        snprintf(timing_name, sizeof(timing_name), "enable cycle %d", cycle);
+        print_timing(timing_name, time_taken);
+        
+        printf("      ✓ Enabled successfully\n");
+        verify_pattern("enable cycle", buf, ps);
+        
+        // Disable metadata  
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        call_or_die_1(SYS_disable_pte_meta, (unsigned long)buf, "disable_pte_meta");
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        time_taken = get_time_diff(&start, &end);
+        
+        snprintf(timing_name, sizeof(timing_name), "disable cycle %d", cycle);
+        print_timing(timing_name, time_taken);
+        
+        printf("      ✓ Disabled successfully\n");
+        verify_pattern("disable cycle", buf, ps);
+    }
+    
+    printf("    ✓ All enable/disable cycles completed successfully\n");
+}
+
+static void test_double_enable_error(uint8_t *buf, size_t ps)
+{
+    struct timespec start, end;
+    double time_taken;
+    
+    printf("\n--- Double Enable Error Test ---\n");
+    
+    // First enable should succeed
+    printf("    First enable (should succeed)...\n");
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    call_or_die_1(SYS_enable_pte_meta, (unsigned long)buf, "enable_pte_meta");
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("first enable", time_taken);
+    printf("      ✓ First enable succeeded\n");
+    
+    // Second enable should fail with -EEXIST
+    printf("    Second enable (should fail with EEXIST)...\n");
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    long r = syscall(SYS_enable_pte_meta, (unsigned long)buf);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("second enable", time_taken);
+    
+    if (r == 0) {
+        fprintf(stderr, "    ✗ Second enable should have failed but succeeded\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (errno == EEXIST) {
+        printf("      ✓ Second enable failed with EEXIST as expected\n");
+    } else {
+        fprintf(stderr, "    ✗ Expected EEXIST, got: %s (errno=%d)\n", 
+                strerror(errno), errno);
+        exit(EXIT_FAILURE);
+    }
+    
+    verify_pattern("double enable test", buf, ps);
+    
+    // Clean up - disable metadata
+    call_or_die_1(SYS_disable_pte_meta, (unsigned long)buf, "cleanup disable");
+    printf("    ✓ Cleanup completed\n");
+}
+
 int main(void)
 {
     struct timespec start, end;
@@ -47,10 +139,10 @@ int main(void)
     size_t ps = sysconf(_SC_PAGESIZE);
     uint8_t *buf;
 
-    printf("\n=== Test6: PTE Meta Enable/Disable Test ===\n\n");
+    printf("\n=== Test6: PTE Metadata Enable/Disable Test ===\n\n");
 
-    // Section 1: Timing Measurements
-    printf("--- Timing Measurements ---\n");
+    // Section 1: Setup
+    printf("--- Setup ---\n");
     
     clock_gettime(CLOCK_MONOTONIC, &start);
     posix_memalign((void **)&buf, ps, ps);
@@ -65,41 +157,19 @@ int main(void)
     clock_gettime(CLOCK_MONOTONIC, &end);
     time_taken = get_time_diff(&start, &end);
     print_timing("Pattern writing", time_taken);
-
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    syscall(SYS_enable_pte_meta, (unsigned long)buf, 0, 0);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("enable_pte_meta", time_taken);
-
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    syscall(SYS_disable_pte_meta, (unsigned long)buf, 0, 0);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("disable_pte_meta", time_taken);
-
-    // Section 2: Results and Verification
-    printf("\n--- Results and Verification ---\n");
     
     verify_pattern("initial fill", buf, ps);
 
-    long ret = syscall(SYS_enable_pte_meta, (unsigned long)buf, 0, 0);
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ enable_pte_meta failed with error: %s\n", 
-                strerror(-ret));
-        exit(EXIT_FAILURE);
-    }
-    printf("    ✓ PTE meta enabled successfully\n");
-    verify_pattern("enable_pte_meta", buf, ps);
+    // Section 2: Test enable/disable cycles
+    test_enable_disable_cycle(buf, ps);
 
-    ret = syscall(SYS_disable_pte_meta, (unsigned long)buf, 0, 0);
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ disable_pte_meta failed with error: %s\n", 
-                strerror(-ret));
-        exit(EXIT_FAILURE);
-    }
-    printf("    ✓ PTE meta disabled successfully\n");
-    verify_pattern("disable_pte_meta", buf, ps);
+    // Section 3: Test double enable error
+    test_double_enable_error(buf, ps);
+
+    // Section 4: Final verification
+    printf("\n--- Final Verification ---\n");
+    verify_pattern("final check", buf, ps);
+    printf("    ✓ All tests completed successfully\n");
 
     munlock(buf, ps);
     free(buf);

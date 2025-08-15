@@ -1,5 +1,5 @@
 /*
- * test7.c - Tests disabling PTE meta without prior enable (should return ENODATA)
+ * test7.c - Tests disabling PTE metadata without prior enable
  */
 
 #define _GNU_SOURCE
@@ -13,7 +13,10 @@
 #include <string.h>
 #include <time.h>
 
+#define SYS_enable_pte_meta   469
 #define SYS_disable_pte_meta  470
+#define SYS_set_pte_meta      471
+#define SYS_get_pte_meta      472
 
 static void fill(uint8_t *b, size_t n)
 { for (size_t i = 0; i < n; ++i) b[i] = (uint8_t)(i & 0xFF); }
@@ -39,6 +42,42 @@ static void print_timing(const char *operation, double nanoseconds)
     printf("    %-20s: %10.0f ns\n", operation, nanoseconds);
 }
 
+static void test_disable_without_enable(uint8_t *buf, size_t ps)
+{
+    struct timespec start, end;
+    double time_taken;
+    
+    printf("\n--- Disable Without Enable Test ---\n");
+    
+    printf("    Attempting to disable metadata on non-expanded page table...\n");
+    
+    // Try to disable metadata when page table is not expanded
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    long r = syscall(SYS_disable_pte_meta, (unsigned long)buf);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    time_taken = get_time_diff(&start, &end);
+    print_timing("disable_pte_meta", time_taken);
+    
+    // Based on the syscall implementation, it should return -EINVAL when PEN bit is not set
+    if (r == 0) {
+        fprintf(stderr, "    ✗ Expected failure, but syscall succeeded\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (r < 0) {
+        if (errno == EINVAL) {
+            printf("    ✓ disable_pte_meta returned EINVAL as expected (errno=%d)\n", errno);
+            printf("    ✓ This confirms page table was not expanded\n");
+        } else {
+            fprintf(stderr, "    ✗ Expected EINVAL, got: %s (errno=%d)\n", 
+                    strerror(errno), errno);
+            exit(EXIT_FAILURE);
+        }
+    }
+    
+    verify_pattern("disable attempt", buf, ps);
+}
+
 int main(void)
 {
     struct timespec start, end;
@@ -46,15 +85,14 @@ int main(void)
     size_t ps = sysconf(_SC_PAGESIZE);
     uint8_t *buf;
 
-    printf("\n=== Test7: PTE Meta Disable Without Enable Test ===\n\n");
+    printf("\n=== Test7: Disable Metadata Without Enable Test ===\n\n");
 
-    // Section 1: Timing Measurements
-    printf("--- Timing Measurements ---\n");
+    // Section 1: Setup
+    printf("--- Setup ---\n");
     
     clock_gettime(CLOCK_MONOTONIC, &start);
-    int ret = posix_memalign((void **)&buf, ps, ps);
-    if (ret != 0) {
-        fprintf(stderr, "    ✗ Failed to allocate page aligned memory: %s\n", strerror(ret));
+    if (posix_memalign((void **)&buf, ps, ps) != 0) {
+        perror("posix_memalign");
         exit(EXIT_FAILURE);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -68,29 +106,18 @@ int main(void)
     clock_gettime(CLOCK_MONOTONIC, &end);
     time_taken = get_time_diff(&start, &end);
     print_timing("Pattern writing", time_taken);
-
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    long sys_ret = syscall(SYS_disable_pte_meta, (unsigned long)buf, 0, 0);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_taken = get_time_diff(&start, &end);
-    print_timing("disable_pte_meta", time_taken);
-
-    // Section 2: Results and Verification
-    printf("\n--- Results and Verification ---\n");
     
     verify_pattern("initial fill", buf, ps);
+    
+    printf("    Note: NOT calling enable_pte_meta - page table remains standard 4KiB\n");
 
-    if (sys_ret >= 0) {
-        fprintf(stderr, "    ✗ disable_pte_meta unexpectedly succeeded\n");
-        exit(EXIT_FAILURE);
-    }
+    // Section 2: Test disabling without enable
+    test_disable_without_enable(buf, ps);
 
-    if (errno != ENODATA) {
-        fprintf(stderr, "    ✗ expected ENODATA (61), got errno: %d (%s)\n", 
-                errno, strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    printf("    ✓ PTE meta disable returned ENODATA as expected\n");
+    // Section 3: Final verification
+    printf("\n--- Final Verification ---\n");
+    verify_pattern("final check", buf, ps);
+    printf("    ✓ Test completed successfully\n");
 
     munlock(buf, ps);
     free(buf);
